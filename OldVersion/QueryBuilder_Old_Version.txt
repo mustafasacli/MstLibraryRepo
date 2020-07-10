@@ -1,0 +1,343 @@
+package jv.freeorm.query;
+
+import jv.freeorm.base.DriverType;
+import jv.freeorm.base.DbParameter;
+import jv.freeorm.entity.IBaseBO;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+
+/**
+ *
+ * @author Mustafa SACLI
+ */
+public class QueryBuilder_Old implements IQueryBuilder, IQueryTypes {
+
+    private DriverType driver_type = null;
+    private QueryTypes query_type;
+    private IBaseBO base_bo;
+    private String _query = "";
+    private ArrayList<DbParameter> params = null;
+    private String query_format = "";
+
+    public QueryBuilder_Old() throws Exception {
+        this(null, null, null);
+    }
+
+    public QueryBuilder_Old(IBaseBO baseBO, QueryTypes queryType) throws Exception {
+        this(baseBO, queryType, DriverType.Derby);
+    }
+
+    public QueryBuilder_Old(IBaseBO baseBO, QueryTypes queryType, DriverType connectionType) throws Exception {
+        this.params = new ArrayList<DbParameter>();
+        base_bo = baseBO;
+        query_type = queryType;
+        driver_type = connectionType;
+        params = getAllParameters();
+        _query = getAllQuery();
+    }
+
+    /**
+     * @return the m_query_type
+     */
+    @Override
+    public QueryTypes getQueryType() {
+        return query_type;
+    }
+
+    /**
+     * @param queryType the m_query_type to set
+     */
+    @Override
+    public void setQueryType(QueryTypes queryType) {
+        this.query_type = queryType;
+    }
+
+    /**
+     * @return the m_driver_type
+     */
+    @Override
+    public DriverType getConnectionType() {
+        return driver_type;
+    }
+
+    /**
+     * @param connectionType the m_driver_type to set
+     */
+    @Override
+    public void setConnectionType(DriverType connectionType) {
+        this.driver_type = connectionType;
+    }
+
+    @Override
+    public DbParameter[] getParameters() {
+        if (params == null || params.isEmpty()) {
+            return null;
+        } else {
+            DbParameter[] parameters = new DbParameter[params.size()];
+            parameters = params.toArray(parameters);
+            /*for (int i = 0; i < parameters.length; i++) {
+             parameters[i] = params.get(i);
+             }*/
+            return parameters;
+        }
+    }
+
+    private String Queryformat() {
+        String retQueryfomat = "";
+        switch (query_type) {
+            case Select:
+                retQueryfomat = "Select * From %s;";
+                break;
+            case InsertAndGetId:
+            case Insert:
+                retQueryfomat = "Insert Into %s(%s) Values (%s);";
+                break;
+
+            case Delete:
+                retQueryfomat = "Delete From %s Where %s;";
+                break;
+
+            case Update:
+                retQueryfomat = "Update %s Set %s Where %s;";
+                break;
+
+            case SelectWhere:
+                retQueryfomat = "Select * From %s Where %s;";
+                break;
+        }
+
+        return retQueryfomat;
+    }
+
+    /**
+     *
+     * @return Query of Given table object with given parameter and querytype.
+     */
+    @Override
+    public String getQuery() {
+        return _query;
+    }
+
+    private ArrayList<DbParameter> getAllParameters() throws Exception {
+        try {
+            ArrayList<DbParameter> parameters = new ArrayList<DbParameter>();;
+            ArrayList<String> colList;
+            String col;
+            Field f;
+            int index;
+            switch (query_type) {
+                case Select:
+                    return null;
+                /**
+                 * case Insert and InsertAndGetId
+                 */
+                case InsertAndGetId:
+                case Insert:
+                    colList = base_bo.getChangeList();
+                    colList.remove(base_bo.getIdColumn());
+                    index = 1;
+                    for (int i = 0; i < colList.size(); i++) {
+                        col = colList.get(i);
+                        if (!col.matches(base_bo.getIdColumn())) {
+                            f = base_bo.getClass().getDeclaredField(String.format("_%s", col));
+                            if (f != null) {
+                                f.setAccessible(true);
+                                Object val = f.get(base_bo);
+                                f.setAccessible(false);
+                                parameters.add(new DbParameter(index++, val));
+                            }
+                        }
+                    }
+
+                    return parameters;
+                /**
+                 * case Update
+                 */
+
+                case Update:
+                    index = 1;
+                    colList = base_bo.getChangeList();
+
+                    for (int i = 0; i < colList.size(); i++) {
+                        col = colList.get(i);
+                        if (!col.matches(base_bo.getIdColumn())) {
+                            f = base_bo.getClass().getDeclaredField(String.format("_%s", col));
+                            f.setAccessible(true);
+                            Object val = f.get(base_bo);
+                            f.setAccessible(false);
+                            parameters.add(new DbParameter(index++, val));
+                        }
+                    }
+                    f = base_bo.getClass().getDeclaredField(String.format("_%s", base_bo.getIdColumn()));
+                    f.setAccessible(true);
+                    Object idVal = f.get(base_bo);
+                    f.setAccessible(false);
+                    parameters.add(new DbParameter(index, idVal));
+                    return parameters;
+
+                /**
+                 * case Delete
+                 */
+                case Delete:
+                    f = base_bo.getClass().getDeclaredField(String.format("_%s", base_bo.getIdColumn()));
+                    f.setAccessible(true);
+                    Object idValDel = f.get(base_bo);
+                    f.setAccessible(false);
+                    parameters.add(new DbParameter(1, idValDel));
+                    return parameters;
+
+                case SelectWhere:
+                    colList = base_bo.getChangeList();
+                    for (int i = 0; i < colList.size(); i++) {
+                        col = colList.get(i);
+                        f = base_bo.getClass().getDeclaredField(String.format("_%s", col));
+                        f.setAccessible(true);
+                        Object val = f.get(base_bo);
+                        f.setAccessible(false);
+                        parameters.add(new DbParameter(i + 1, val));
+                    }
+                    return parameters;
+
+            }
+        } catch (Exception t) {
+            throw t;
+        }
+        return null;
+    }
+
+    private String getAllQuery() {
+        query_format = Queryformat();
+        String query = "";
+        switch (query_type) {
+
+            case Select:
+                query = String.format(query_format, base_bo.getTable());
+                break;
+
+            case Insert:
+                query = String.format(query_format, base_bo.getTable(), getColumnParts(), getWhere_Id_ParamPart());
+                break;
+
+            case Update:
+                query = String.format(query_format, base_bo.getTable(), getColumnParts(), getWhere_Id_ParamPart());
+                break;
+
+            case Delete:
+                query = String.format(query_format, base_bo.getTable(), getWhere_Id_ParamPart());
+                break;
+
+            case InsertAndGetId:
+                query = String.format(query_format, base_bo.getTable(), getColumnParts(), getWhere_Id_ParamPart());
+                query = query.concat(getIdentity());
+                break;
+
+            case SelectWhere:
+                query = String.format(query_format, base_bo.getTable(), getWhere_Id_ParamPart());
+                break;
+        }
+        return query;
+    }
+
+    private String getColumnParts() {
+        StringBuffer strBuffer = new StringBuffer();
+        String cols;
+        switch (query_type) {
+            case SelectWhere:
+            case Select:
+            case Delete:
+                return "";
+
+            case InsertAndGetId:
+            case Insert:
+                for (String col : base_bo.getChangeList()) {
+                    if (!col.matches(base_bo.getIdColumn())) {
+                        strBuffer.append(String.format("%s,", col));
+                    }
+                }
+                cols = strBuffer.toString();
+                cols = cols.length() > 0 ? cols.substring(0, cols.length() - 1) : "";
+                return cols;
+
+            case Update:
+                for (String col : base_bo.getChangeList()) {
+                    if (!col.matches(base_bo.getIdColumn())) {
+                        strBuffer.append(String.format("%s=?,", col));
+                    }
+                }
+                cols = strBuffer.toString();
+                cols = cols.length() > 0 ? cols.substring(0, cols.length() - 1) : "";
+                return cols;
+        }
+        return null;
+    }
+
+    private String getWhere_Id_ParamPart() {
+        StringBuffer strBuffer = new StringBuffer();
+        String cols = "";
+        switch (query_type) {
+            case Select:
+                return "";
+
+            case SelectWhere:
+                for (String col : base_bo.getChangeList()) {
+                    strBuffer.append(String.format("%s=? And ", col));
+                }
+                cols = strBuffer.toString();
+                cols = cols.length() > 0 ? cols.substring(0, cols.length() - 5) : "";
+                return cols;
+
+            case Delete:
+            case Update:
+                return String.format("%s=?", base_bo.getIdColumn());
+
+            case InsertAndGetId:
+            case Insert:
+                for (String col : base_bo.getChangeList()) {
+                    if (!col.matches(base_bo.getIdColumn())) {
+                        strBuffer.append("?,");
+                    }
+                }
+                cols = strBuffer.toString();
+                cols = cols.length() > 0 ? cols.substring(0, cols.length() - 1) : "";
+                return cols;
+
+        }
+        return null;
+    }
+
+    private String getIdentity() {
+        String result = "";
+        try {
+
+            if (driver_type == DriverType.Oracle) {
+                result = " @@IDENTITY;";
+                return result;
+            }
+
+            if (driver_type == DriverType.MsSQL) {
+                result = String.format(" SELECT IDENT_CURRENT('%s');", base_bo.getTable());
+                return result;
+            }
+
+            if (driver_type == DriverType.Jtds_MsSql) {
+                result = String.format(" SELECT IDENT_CURRENT('%s');", base_bo.getTable());
+                return result;
+            }
+
+            if (driver_type == DriverType.MsSqlCe) {
+                result = String.format(" SELECT IDENT_CURRENT('%s');", base_bo.getTable());
+                return result;
+            }
+
+            if (driver_type == DriverType.Access) {
+                result = String.format(" SELECT IDENT_CURRENT('%s');", base_bo.getTable());
+                return result;
+            }
+
+        } catch (Exception e) {
+            result = "";
+        }
+
+        return result;
+    }
+}
